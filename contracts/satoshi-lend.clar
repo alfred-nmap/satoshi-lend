@@ -283,3 +283,101 @@
           (var-get minimum-collateral-ratio)
         )
       )
+      (begin
+        ;; Transfer released collateral back to user account
+        (try! (as-contract (stx-transfer? withdrawal-amount (as-contract tx-sender) tx-sender)))
+        ;; Decrement global collateral tracking
+        (var-set total-protocol-collateral
+          (- (var-get total-protocol-collateral) withdrawal-amount)
+        )
+        ;; Update user's portfolio with reduced collateral
+        (synchronize-user-portfolio tx-sender withdrawal-amount false u0 true)
+        ;; Confirm successful collateral release
+        (ok withdrawal-amount)
+      )
+      ;; Reject unsafe withdrawal request
+      ERR_INSUFFICIENT_COLLATERAL
+    )
+  )
+)
+
+;; AUTOMATED LIQUIDATION INFRASTRUCTURE
+
+;; Position Liquidation Engine - Autonomous protocol solvency protection
+;; Enables decentralized liquidation of under-collateralized positions
+;; Critical safety mechanism maintaining Bitcoin L2 protocol integrity
+(define-public (execute-position-liquidation (target-borrower principal))
+  (let (
+      ;; Retrieve target position for liquidation assessment
+      (borrower-portfolio (unwrap! (map-get? user-lending-summary { user: target-borrower })
+        ERR_POSITION_NONEXISTENT
+      ))
+      (at-risk-collateral (get aggregate-collateral borrower-portfolio))
+      (outstanding-debt (get aggregate-debt borrower-portfolio))
+      ;; Calculate current position health for liquidation eligibility
+      (position-health-ratio (assess-collateral-health at-risk-collateral outstanding-debt))
+    )
+    ;; Enforce liquidation business rules and safety checks
+    (asserts! (not (is-eq target-borrower tx-sender)) ERR_ACCESS_DENIED)
+    (asserts! (> outstanding-debt u0) ERR_INVALID_OPERATION)
+
+    ;; Execute liquidation if position breaches health threshold
+    (if (< position-health-ratio (var-get liquidation-threshold))
+      (begin
+        ;; Transfer seized collateral to liquidator as incentive reward
+        (try! (as-contract (stx-transfer? at-risk-collateral (as-contract tx-sender) tx-sender)))
+        ;; Remove liquidated position from protocol state
+        (map-delete user-lending-summary { user: target-borrower })
+        ;; Update global protocol metrics post-liquidation
+        (var-set total-protocol-collateral
+          (- (var-get total-protocol-collateral) at-risk-collateral)
+        )
+        (var-set total-protocol-debt
+          (- (var-get total-protocol-debt) outstanding-debt)
+        )
+        ;; Emit liquidation event for protocol monitoring
+        (print {
+          event: "position-liquidated",
+          liquidated-account: target-borrower,
+          collateral-seized: at-risk-collateral,
+          debt-cleared: outstanding-debt,
+          liquidator: tx-sender,
+        })
+        (ok true)
+      )
+      ;; Reject premature liquidation attempt
+      ERR_LIQUIDATION_REJECTED
+    )
+  )
+)
+
+;; PROTOCOL ANALYTICS & PUBLIC INTERFACES
+
+;; User Portfolio Analytics - Comprehensive position monitoring for Bitcoin L2
+;; Provides real-time visibility into user's complete DeFi portfolio
+(define-read-only (fetch-user-portfolio (account principal))
+  (default-to {
+    aggregate-collateral: u0,
+    aggregate-debt: u0,
+    position-count: u0,
+  }
+    (map-get? user-lending-summary { user: account })
+  )
+)
+
+;; Protocol Health Dashboard - System-wide metrics for Bitcoin L2 DeFi
+;; Essential transparency data for protocol participants and stakeholders
+(define-read-only (get-protocol-health-metrics)
+  {
+    total-stx-locked: (var-get total-protocol-collateral),
+    total-stx-borrowed: (var-get total-protocol-debt),
+    minimum-collateral-ratio: (var-get minimum-collateral-ratio),
+    liquidation-threshold: (var-get liquidation-threshold),
+    treasury-fee-rate: (var-get treasury-fee-rate),
+    ;; Calculate protocol utilization efficiency
+    capital-utilization-rate: (if (> (var-get total-protocol-collateral) u0)
+      (/ (* (var-get total-protocol-debt) u100)
+        (var-get total-protocol-collateral)
+      )
+      u0
+    ),
