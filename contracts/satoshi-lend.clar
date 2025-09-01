@@ -189,3 +189,97 @@
       }
         (map-get? user-lending-summary { user: tx-sender })
       ))
+      (committed-collateral (get aggregate-collateral user-portfolio))
+      (current-debt-load (get aggregate-debt user-portfolio))
+    )
+    ;; Validate borrowing request meets protocol safety standards
+    (if (and
+        (> borrow-amount u0) ;; Ensure meaningful borrow amount
+        ;; Verify post-borrow collateralization exceeds minimum threshold
+        (>=
+          (assess-collateral-health committed-collateral
+            (+ current-debt-load borrow-amount)
+          )
+          (var-get minimum-collateral-ratio)
+        )
+      )
+      (begin
+        ;; Transfer borrowed STX from protocol treasury to user
+        (try! (as-contract (stx-transfer? borrow-amount (as-contract tx-sender) tx-sender)))
+        ;; Increment global debt tracking for protocol risk management
+        (var-set total-protocol-debt
+          (+ (var-get total-protocol-debt) borrow-amount)
+        )
+        ;; Update user's portfolio with increased debt position
+        (synchronize-user-portfolio tx-sender u0 true borrow-amount true)
+        ;; Return successful borrowing confirmation
+        (ok borrow-amount)
+      )
+      ;; Reject unsafe borrowing request
+      ERR_INSUFFICIENT_COLLATERAL
+    )
+  )
+)
+
+;; Debt Settlement Engine - Restore portfolio health on Bitcoin L2
+;; Enables borrowers to reduce debt exposure and improve collateralization
+;; Essential mechanism for maintaining protocol participation in good standing
+(define-public (settle-outstanding-debt (payment-amount uint))
+  (let (
+      ;; Access current user portfolio for debt validation
+      (user-portfolio (default-to {
+        aggregate-collateral: u0,
+        aggregate-debt: u0,
+        position-count: u0,
+      }
+        (map-get? user-lending-summary { user: tx-sender })
+      ))
+      (total-debt-outstanding (get aggregate-debt user-portfolio))
+    )
+    ;; Validate payment amount against outstanding debt
+    (if (<= payment-amount total-debt-outstanding)
+      (begin
+        ;; Transfer debt payment from user to protocol treasury
+        (try! (stx-transfer? payment-amount tx-sender (as-contract tx-sender)))
+        ;; Decrement global debt counter for protocol metrics
+        (var-set total-protocol-debt
+          (- (var-get total-protocol-debt) payment-amount)
+        )
+        ;; Update user's portfolio with reduced debt position
+        (synchronize-user-portfolio tx-sender u0 true payment-amount false)
+        ;; Confirm successful debt reduction
+        (ok payment-amount)
+      )
+      ;; Reject invalid payment amount
+      ERR_INVALID_OPERATION
+    )
+  )
+)
+
+;; Collateral Liberation System - Reclaim STX from Bitcoin L2 protocol
+;; Allows users to withdraw excess collateral while preserving position health
+;; Key feature for capital efficiency and flexible DeFi portfolio management
+(define-public (release-excess-collateral (withdrawal-amount uint))
+  (let (
+      ;; Analyze current user portfolio for withdrawal capacity
+      (user-portfolio (default-to {
+        aggregate-collateral: u0,
+        aggregate-debt: u0,
+        position-count: u0,
+      }
+        (map-get? user-lending-summary { user: tx-sender })
+      ))
+      (committed-collateral (get aggregate-collateral user-portfolio))
+      (debt-obligations (get aggregate-debt user-portfolio))
+    )
+    ;; Validate withdrawal maintains protocol safety requirements
+    (if (and
+        (<= withdrawal-amount committed-collateral) ;; Sufficient collateral exists
+        ;; Ensure remaining collateral adequately secures debt
+        (>=
+          (assess-collateral-health (- committed-collateral withdrawal-amount)
+            debt-obligations
+          )
+          (var-get minimum-collateral-ratio)
+        )
+      )
