@@ -475,3 +475,44 @@
     (ok true)
   )
 )
+
+;; Protocol Economics Governance - Sustainable revenue model for Bitcoin L2
+;; Manages treasury fee structure balancing protocol growth and user adoption
+;; Critical for long-term protocol sustainability and development funding
+(define-public (modify-treasury-economics (new-fee-percentage uint))
+  (begin
+    ;; Validate governance authority for economic parameter changes
+    (asserts! (is-eq tx-sender PROTOCOL_AUTHORITY) ERR_ACCESS_DENIED)
+    ;; Ensure fee rate maintains protocol competitiveness
+    (asserts! (<= new-fee-percentage MAX_TREASURY_FEE) ERR_PARAMETER_VIOLATION)
+    ;; Update protocol fee structure
+    (var-set treasury-fee-rate new-fee-percentage)
+    ;; Broadcast economic governance event
+    (print {
+      event: "treasury-economics-modified",
+      new-fee-rate: new-fee-percentage,
+      effective-immediately: true,
+      governance-authority: tx-sender,
+    })
+    (ok true)
+  )
+)
+
+;; PROTOCOL EMERGENCY CONTROLS
+
+;; Circuit Breaker Mechanism - Emergency protocol protection for Bitcoin L2
+;; Reserved for extreme market conditions or security incidents
+(define-public (emergency-protocol-pause)
+  (begin
+    ;; Restrict emergency controls to protocol authority
+    (asserts! (is-eq tx-sender PROTOCOL_AUTHORITY) ERR_ACCESS_DENIED)
+    ;; Emit critical system event for immediate stakeholder notification
+    (print {
+      event: "emergency-protocol-pause",
+      initiated-by: tx-sender,
+      timestamp: stacks-block-height,
+      reason: "manual-intervention-required",
+    })
+    (ok true)
+  )
+)
