@@ -381,3 +381,97 @@
       )
       u0
     ),
+    ;; Assess overall protocol financial health
+    global-health-ratio: (assess-collateral-health (var-get total-protocol-collateral)
+      (var-get total-protocol-debt)
+    ),
+  }
+)
+
+;; Position Risk Assessment - Advanced health factor calculation
+;; Real-time risk evaluation for any account in the Bitcoin L2 protocol
+(define-read-only (evaluate-position-risk (account principal))
+  (let (
+      ;; Fetch comprehensive portfolio data for analysis
+      (portfolio-data (fetch-user-portfolio account))
+      (collateral-value (get aggregate-collateral portfolio-data))
+      (debt-burden (get aggregate-debt portfolio-data))
+      ;; Calculate current position health metrics
+      (health-factor (assess-collateral-health collateral-value debt-burden))
+    )
+    {
+      current-health-ratio: health-factor,
+      liquidation-risk-status: (< health-factor (var-get liquidation-threshold)),
+      position-safety-margin: (if (> health-factor (var-get minimum-collateral-ratio))
+        (- health-factor (var-get minimum-collateral-ratio))
+        u0
+      ),
+      ;; Calculate maximum additional borrowing capacity
+      max-additional-borrow: (if (> collateral-value u0)
+        (let ((max-safe-debt (/ (* collateral-value u100) (var-get minimum-collateral-ratio))))
+          (if (> max-safe-debt debt-burden)
+            (- max-safe-debt debt-burden)
+            u0
+          )
+        )
+        u0
+      ),
+    }
+  )
+)
+
+;; GOVERNANCE & PROTOCOL ADMINISTRATION
+
+;; Collateral Ratio Governance - Dynamic risk parameter management
+;; Enables protocol evolution while maintaining Bitcoin L2 security standards
+(define-public (adjust-collateral-requirements (new-minimum-ratio uint))
+  (begin
+    ;; Verify governance authority for parameter changes
+    (asserts! (is-eq tx-sender PROTOCOL_AUTHORITY) ERR_ACCESS_DENIED)
+    ;; Validate new ratio falls within acceptable risk boundaries
+    (asserts!
+      (and
+        (>= new-minimum-ratio MIN_COLLATERAL_RATIO)
+        (<= new-minimum-ratio MAX_COLLATERAL_RATIO)
+      )
+      ERR_PARAMETER_VIOLATION
+    )
+    ;; Update protocol configuration
+    (var-set minimum-collateral-ratio new-minimum-ratio)
+    ;; Emit governance event for transparency
+    (print {
+      event: "collateral-requirements-updated",
+      new-minimum-ratio: new-minimum-ratio,
+      updated-by: tx-sender,
+      block-height: stacks-block-height,
+    })
+    (ok true)
+  )
+)
+
+;; Liquidation Threshold Calibration - Fine-tuning protocol safety mechanisms
+;; Adjusts when positions become eligible for liquidation intervention
+;; Must maintain logical hierarchy with collateral requirements
+(define-public (calibrate-liquidation-threshold (new-liquidation-threshold uint))
+  (begin
+    ;; Enforce governance access control
+    (asserts! (is-eq tx-sender PROTOCOL_AUTHORITY) ERR_ACCESS_DENIED)
+    ;; Validate threshold maintains logical relationship with collateral ratio
+    (asserts!
+      (and
+        (>= new-liquidation-threshold MIN_COLLATERAL_RATIO)
+        (<= new-liquidation-threshold (var-get minimum-collateral-ratio))
+      )
+      ERR_PARAMETER_VIOLATION
+    )
+    ;; Apply new liquidation threshold
+    (var-set liquidation-threshold new-liquidation-threshold)
+    ;; Log governance action for protocol transparency
+    (print {
+      event: "liquidation-threshold-calibrated",
+      new-threshold: new-liquidation-threshold,
+      governance-actor: tx-sender,
+    })
+    (ok true)
+  )
+)
