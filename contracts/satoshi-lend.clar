@@ -94,3 +94,98 @@
     total-accrued
   )
 )
+
+;; Collateralization Health Engine - Advanced risk assessment for Bitcoin L2
+;; Calculates position safety ratio as foundation for liquidation decisions
+(define-private (assess-collateral-health
+    (collateral-amount uint)
+    (debt-amount uint)
+  )
+  (if (is-eq debt-amount u0)
+    u0 ;; Zero debt scenario - mathematically infinite health ratio
+    ;; Standard health ratio: (collateral / debt) * 100
+    (/ (* collateral-amount u100) debt-amount)
+  )
+)
+
+;; Portfolio State Synchronization - Atomic user position management
+;; Ensures data consistency across all user interactions with protocol
+(define-private (synchronize-user-portfolio
+    (user-account principal)
+    (collateral-delta uint)
+    (collateral-operation-type bool)
+    (debt-delta uint)
+    (debt-operation-type bool)
+  )
+  (let (
+      ;; Retrieve current portfolio state or initialize empty portfolio
+      (existing-portfolio (default-to {
+        aggregate-collateral: u0,
+        aggregate-debt: u0,
+        position-count: u0,
+      }
+        (map-get? user-lending-summary { user: user-account })
+      ))
+      ;; Calculate new collateral balance based on operation type
+      (new-collateral-balance (if collateral-operation-type
+        (+ (get aggregate-collateral existing-portfolio) collateral-delta)
+        (- (get aggregate-collateral existing-portfolio) collateral-delta)
+      ))
+      ;; Calculate new debt balance based on operation type
+      (new-debt-balance (if debt-operation-type
+        (+ (get aggregate-debt existing-portfolio) debt-delta)
+        (- (get aggregate-debt existing-portfolio) debt-delta)
+      ))
+    )
+    ;; Atomically update user's complete portfolio state
+    (map-set user-lending-summary { user: user-account } {
+      aggregate-collateral: new-collateral-balance,
+      aggregate-debt: new-debt-balance,
+      position-count: (get position-count existing-portfolio),
+    })
+  )
+)
+
+;; PRIMARY PROTOCOL OPERATIONS
+
+;; STX Collateral Commitment - Gateway to Bitcoin L2 DeFi ecosystem
+;; Transforms idle STX holdings into productive DeFi collateral
+;; Foundation operation enabling access to protocol's lending capabilities
+(define-public (commit-stx-collateral)
+  (let (
+      ;; Query user's complete STX balance for collateral commitment
+      (available-stx-balance (stx-get-balance tx-sender))
+    )
+    ;; Validate sufficient balance exists for meaningful collateral
+    (if (> available-stx-balance u0)
+      (begin
+        ;; Execute STX transfer to protocol's custody contract
+        (try! (stx-transfer? available-stx-balance tx-sender (as-contract tx-sender)))
+        ;; Increment global collateral tracking for protocol analytics
+        (var-set total-protocol-collateral
+          (+ (var-get total-protocol-collateral) available-stx-balance)
+        )
+        ;; Update user's portfolio with new collateral position
+        (synchronize-user-portfolio tx-sender available-stx-balance true u0 true)
+        ;; Return successful operation with committed amount
+        (ok available-stx-balance)
+      )
+      ;; Reject operation for insufficient balance
+      ERR_INVALID_OPERATION
+    )
+  )
+)
+
+;; STX Borrowing Infrastructure - Unlock Bitcoin L2 liquidity potential
+;; Enables over-collateralized borrowing against committed STX positions
+;; Core value proposition: transform static holdings into liquid capital
+(define-public (execute-stx-borrow (borrow-amount uint))
+  (let (
+      ;; Retrieve comprehensive user portfolio for risk assessment
+      (user-portfolio (default-to {
+        aggregate-collateral: u0,
+        aggregate-debt: u0,
+        position-count: u0,
+      }
+        (map-get? user-lending-summary { user: tx-sender })
+      ))
